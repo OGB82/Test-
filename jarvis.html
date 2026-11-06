@@ -1,0 +1,276 @@
+<title>Jarvis</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600&family=IBM+Plex+Sans:wght@400;500&family=IBM+Plex+Mono:wght@400&display=swap">
+<style>
+/* Layout: one-screen voice console. Header strip, reactive core, conversation log, input dock. Deliberately single dark theme. */
+:root {
+  --bg: #070b10;
+  --panel: #0e151d;
+  --line: #1c2a36;
+  --fg: #dce7ee;
+  --muted: #7d909e;
+  --core: #4fd8e8;
+  --warm: #f0b45a;
+  --danger: #ff7a6b;
+  --f-display: "Chakra Petch", "Segoe UI", system-ui, sans-serif;
+  --f-body: "IBM Plex Sans", system-ui, -apple-system, sans-serif;
+  --f-mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+  color-scheme: dark;
+}
+html, body { height: 100%; }
+body {
+  background: var(--bg); color: var(--fg);
+  font: 16px/1.5 var(--f-body);
+  display: flex; flex-direction: column;
+  overflow: hidden;
+}
+.wrap {
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  width: 100%; max-width: 720px; margin: 0 auto; box-sizing: border-box;
+}
+header .wrap { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-block: 12px; }
+.brand { font-family: var(--f-display); font-weight: 600; font-size: 1.25rem; letter-spacing: .28em; text-transform: uppercase; }
+.status { font-family: var(--f-mono); font-size: .72rem; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); display: flex; align-items: center; gap: 8px; }
+.status i { width: 7px; height: 7px; border-radius: 50%; background: var(--core); box-shadow: 0 0 8px var(--core); }
+.status[data-s="denken"] i { background: var(--warm); box-shadow: 0 0 8px var(--warm); }
+.status[data-s="fehler"] i { background: var(--danger); box-shadow: 0 0 8px var(--danger); }
+.toggle {
+  font: 500 .78rem var(--f-body); color: var(--fg); background: transparent;
+  border: 1px solid var(--line); border-radius: 999px; padding: 6px 12px; cursor: pointer;
+}
+.toggle[aria-pressed="false"] { color: var(--muted); }
+.toggle:focus-visible, button:focus-visible, textarea:focus-visible { outline: 2px solid var(--core); outline-offset: 2px; }
+
+.core { flex: 0 0 auto; display: grid; place-items: center; padding-block: 4px; }
+canvas { width: min(200px, 46vw); aspect-ratio: 1; max-width: 100%; display: block; }
+
+main { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+main .wrap { display: flex; flex-direction: column; gap: 14px; padding-block: 8px 16px; }
+.msg { max-width: 88%; min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.msg.ai { align-self: flex-start; }
+.msg.ai .who { color: var(--core); }
+.msg.me { align-self: flex-end; background: var(--panel); border: 1px solid var(--line); border-radius: 14px 14px 4px 14px; padding: 10px 14px; }
+.msg.me .who { color: var(--warm); }
+.who { display: block; font: 400 .68rem var(--f-mono); letter-spacing: .14em; text-transform: uppercase; margin-bottom: 2px; }
+.msg.err { color: var(--danger); }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip { font: 400 .88rem var(--f-body); color: var(--fg); background: var(--panel); border: 1px solid var(--line); border-radius: 999px; padding: 8px 14px; cursor: pointer; text-align: left; }
+.chip:hover { border-color: var(--core); }
+
+footer { border-top: 1px solid var(--line); background: var(--bg); }
+footer .wrap { padding-block: 10px max(10px, env(safe-area-inset-bottom, 0px)); }
+form { display: flex; gap: 8px; align-items: flex-end; }
+textarea {
+  flex: 1 1 auto; min-width: 0; resize: none; max-height: 120px;
+  font: 16px/1.4 var(--f-body); color: var(--fg); background: var(--panel);
+  border: 1px solid var(--line); border-radius: 14px; padding: 11px 14px;
+}
+textarea::placeholder { color: var(--muted); }
+.btn { flex: 0 0 auto; width: 46px; height: 46px; border-radius: 50%; border: 1px solid var(--line); background: var(--panel); color: var(--fg); display: grid; place-items: center; cursor: pointer; }
+.btn.send { background: var(--core); border-color: var(--core); color: var(--bg); }
+.btn.stop { background: var(--warm); border-color: var(--warm); color: var(--bg); }
+.btn.mic.on { border-color: var(--danger); color: var(--danger); }
+.btn svg { width: 20px; height: 20px; }
+.hint { font: 400 .74rem var(--f-mono); color: var(--muted); margin-top: 6px; min-height: 1em; }
+@media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; } }
+</style>
+
+<header><div class="wrap">
+  <span class="brand">Jarvis</span>
+  <span class="status" id="status" data-s="bereit"><i></i><span id="statusText">Bereit</span></span>
+  <button class="toggle" id="voice" type="button" aria-pressed="true">Stimme an</button>
+</div></header>
+
+<div class="core"><canvas id="orb" width="400" height="400" aria-hidden="true"></canvas></div>
+
+<main id="log"><div class="wrap" id="list">
+  <div class="msg ai"><span class="who">Jarvis</span>Guten Tag. Ich bin Jarvis, dein persönlicher Assistent. Frag mich, was du willst: Wissen, Ideen, Rechnen, Planen oder einfach ein Gespräch.</div>
+  <div class="chips" id="chips">
+    <button class="chip" type="button">Erklär mir in 3 Sätzen, wie ein schwarzes Loch entsteht</button>
+    <button class="chip" type="button">Gib mir 3 Ideen fürs Abendessen heute</button>
+    <button class="chip" type="button">Erzähl mir einen guten Witz</button>
+  </div>
+</div></main>
+
+<footer><div class="wrap">
+  <form id="form">
+    <button class="btn mic" id="mic" type="button" aria-label="Spracheingabe" hidden>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>
+    </button>
+    <textarea id="q" rows="1" placeholder="Frag Jarvis etwas …" aria-label="Deine Frage"></textarea>
+    <button class="btn send" id="send" type="submit" aria-label="Senden">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+    </button>
+  </form>
+  <div class="hint" id="hint">Tipp: Zum Sprechen das Mikrofon auf deiner Handy-Tastatur nutzen.</div>
+</div></footer>
+
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const list = $("list"), log = $("log"), q = $("q"), form = $("form"), sendBtn = $("send"), hint = $("hint");
+  const RULES = "Du bist Jarvis, ein höflicher, kluger und leicht trockener persönlicher Assistent. Antworte immer auf Deutsch, außer der Nutzer schreibt in einer anderen Sprache. Antworte knapp und gesprochen-natürlich (meist 1 bis 4 Sätze), ohne Markdown, ohne Aufzählungszeichen und ohne Emojis, weil deine Antworten auch vorgelesen werden. Wenn du etwas nicht weißt oder aktuelle Daten bräuchtest, sag das ehrlich.";
+  let turns = [];
+  let state = "idle";      // idle | think | speak
+  let level = 0;           // animation energy
+  let ctl = null;
+  let voiceOn = true;
+  let samplePromise = window.claude?.use ? window.claude.use("sample") : Promise.resolve(null);
+
+  function setStatus(s, text) { $("status").dataset.s = s; $("statusText").textContent = text; }
+
+  function add(role, text) {
+    const d = document.createElement("div");
+    d.className = "msg " + role;
+    const w = document.createElement("span"); w.className = "who"; w.textContent = role === "me" ? "Du" : "Jarvis";
+    const t = document.createElement("span"); t.textContent = text;
+    d.append(w, t); list.append(d);
+    log.scrollTop = log.scrollHeight;
+    return t;
+  }
+
+  // ---- Voice output ----
+  let deVoice = null;
+  function pickVoice() {
+    try {
+      const vs = speechSynthesis.getVoices();
+      deVoice = vs.find(v => /^de/i.test(v.lang) && /male|mann|markus|yannick|hans|stefan|conrad/i.test(v.name)) || vs.find(v => /^de/i.test(v.lang)) || null;
+    } catch (e) {}
+  }
+  if ("speechSynthesis" in window) { pickVoice(); speechSynthesis.onvoiceschanged = pickVoice; } else { voiceOn = false; $("voice").hidden = true; }
+  function speak(text) {
+    if (!voiceOn || !("speechSynthesis" in window)) { state = "idle"; return; }
+    try {
+      speechSynthesis.cancel();
+      const u = new SpeechSynthesisUtterance(text);
+      u.lang = "de-DE"; if (deVoice) u.voice = deVoice; u.rate = 1.02; u.pitch = 0.9;
+      u.onstart = () => { state = "speak"; setStatus("bereit", "Spricht"); };
+      u.onend = u.onerror = () => { state = "idle"; setStatus("bereit", "Bereit"); };
+      u.onboundary = () => { level = 1; };
+      speechSynthesis.speak(u);
+    } catch (e) { state = "idle"; }
+  }
+  $("voice").onclick = () => {
+    voiceOn = !voiceOn;
+    $("voice").setAttribute("aria-pressed", voiceOn);
+    $("voice").textContent = voiceOn ? "Stimme an" : "Stimme aus";
+    if (!voiceOn) try { speechSynthesis.cancel(); } catch (e) {}
+  };
+
+  // ---- Voice input (only where the browser allows it) ----
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (SR) {
+    const mic = $("mic"); mic.hidden = false;
+    let rec = null;
+    mic.onclick = () => {
+      if (rec) { rec.stop(); return; }
+      try {
+        rec = new SR(); rec.lang = "de-DE"; rec.interimResults = true;
+        rec.onresult = e => { q.value = Array.from(e.results).map(r => r[0].transcript).join(""); grow(); };
+        rec.onerror = () => { hint.textContent = "Mikrofon hier nicht erlaubt. Nutze das Mikrofon auf deiner Tastatur."; };
+        rec.onend = () => { mic.classList.remove("on"); rec = null; if (q.value.trim()) ask(q.value); };
+        rec.start(); mic.classList.add("on"); hint.textContent = "Ich höre zu …";
+      } catch (e) { rec = null; hint.textContent = "Mikrofon hier nicht erlaubt. Nutze das Mikrofon auf deiner Tastatur."; }
+    };
+  }
+
+  // ---- Ask Claude ----
+  const errCopy = {
+    not_granted: "Ich darf noch nicht antworten. Erlaube der Seite oben die Nutzung von Claude.",
+    sampling_disabled: "Für dein Konto ist die KI hier nicht verfügbar.",
+    rate_limited: "Zu viele Fragen auf einmal. Warte kurz und versuch es nochmal.",
+    session_expired: "Bitte melde dich bei Claude neu an.",
+    refused: "Darauf kann ich leider nicht antworten. Frag es anders.",
+  };
+  function setBusy(b) {
+    sendBtn.classList.toggle("stop", b); sendBtn.classList.toggle("send", !b);
+    sendBtn.setAttribute("aria-label", b ? "Stopp" : "Senden");
+    sendBtn.innerHTML = b
+      ? '<svg viewBox="0 0 24 24" fill="currentColor"><rect x="7" y="7" width="10" height="10" rx="2"/></svg>'
+      : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>';
+  }
+
+  async function ask(text) {
+    text = text.trim(); if (!text || ctl) return;
+    try { speechSynthesis.cancel(); } catch (e) {}
+    $("chips")?.remove();
+    q.value = ""; grow();
+    add("me", text);
+    turns.push({ role: "user", content: text });
+    const out = add("ai", "Denke nach …");
+    state = "think"; setStatus("denken", "Denkt"); setBusy(true); hint.textContent = "";
+    ctl = new AbortController();
+    const sample = await samplePromise;
+    if (!sample) {
+      out.textContent = "Ich kann hier gerade nicht antworten. Öffne die Seite in der Claude-App oder auf claude.ai, angemeldet.";
+      out.parentElement.classList.add("err"); turns.pop(); finish(); return;
+    }
+    try {
+      const recent = turns.slice(-16);
+      const { text: answer } = await sample([{ role: "user", content: RULES }, ...recent], {
+        cache: false, modelTier: "quick", signal: ctl.signal,
+        onText: ({ text }) => { out.textContent = text; level = Math.min(1, level + .3); log.scrollTop = log.scrollHeight; },
+      });
+      turns.push({ role: "assistant", content: answer });
+      finish(); speak(answer);
+      return;
+    } catch (e) {
+      if (e && e.code === "cancelled") { out.textContent = e.text || "Abgebrochen."; if (e.text) turns.push({ role: "assistant", content: e.text }); else turns.pop(); }
+      else { out.textContent = (e && e.text ? e.text + "\n\n" : "") + (errCopy[e && e.code] || "Verbindung unterbrochen. Versuch es nochmal."); out.parentElement.classList.add("err"); turns.pop(); setStatus("fehler", "Fehler"); }
+    }
+    finish(true);
+  }
+  function finish(keepStatus) { ctl = null; state = "idle"; setBusy(false); if (!keepStatus) setStatus("bereit", "Bereit"); }
+
+  form.addEventListener("submit", e => { e.preventDefault(); if (ctl) { ctl.abort(); return; } ask(q.value); });
+  q.addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); if (!ctl) ask(q.value); } });
+  function grow() { q.style.height = "auto"; q.style.height = Math.min(q.scrollHeight, 120) + "px"; }
+  q.addEventListener("input", grow);
+  list.addEventListener("click", e => { const c = e.target.closest(".chip"); if (c) ask(c.textContent); });
+
+  // ---- Reactive core ----
+  const cv = $("orb"), cx = cv.getContext("2d");
+  const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const css = getComputedStyle(document.documentElement);
+  const C = css.getPropertyValue("--core").trim(), W = css.getPropertyValue("--warm").trim();
+  let t0 = performance.now();
+  function frame(now) {
+    const t = (now - t0) / 1000, S = 400, m = S / 2;
+    cx.clearRect(0, 0, S, S);
+    const target = state === "speak" ? .55 + .45 * Math.abs(Math.sin(t * 9)) : state === "think" ? .35 : .08;
+    level += (target - level) * .08;
+    const col = state === "think" ? W : C;
+    // glow
+    const g = cx.createRadialGradient(m, m, 10, m, m, 170);
+    g.addColorStop(0, col + "55"); g.addColorStop(.5, col + "14"); g.addColorStop(1, col + "00");
+    cx.fillStyle = g; cx.beginPath(); cx.arc(m, m, 190, 0, Math.PI * 2); cx.fill();
+    // rings
+    const rings = [[150, 1.5, .25, 0.5], [128, 3, .55, -0.9], [104, 1.2, .35, 1.6]];
+    rings.forEach(([r, w, a, sp], i) => {
+      cx.strokeStyle = col; cx.globalAlpha = a + level * .3; cx.lineWidth = w;
+      const rot = reduce ? 0 : t * sp * (state === "think" ? 2.2 : 1);
+      const segs = 6 + i * 3;
+      for (let k = 0; k < segs; k++) {
+        const a0 = rot + k * (Math.PI * 2 / segs), len = (Math.PI * 2 / segs) * (.55 + .25 * Math.sin(k + t * .5));
+        cx.beginPath(); cx.arc(m, m, r + level * 6 * (i + 1), a0, a0 + len); cx.stroke();
+      }
+    });
+    // ticks
+    cx.globalAlpha = .5; cx.lineWidth = 1;
+    for (let k = 0; k < 60; k++) {
+      const a = k * Math.PI / 30 + (reduce ? 0 : -t * .15), r1 = 172, r2 = k % 5 ? 178 : 186;
+      cx.beginPath(); cx.moveTo(m + Math.cos(a) * r1, m + Math.sin(a) * r1); cx.lineTo(m + Math.cos(a) * r2, m + Math.sin(a) * r2); cx.stroke();
+    }
+    // core
+    cx.globalAlpha = 1;
+    const cr = 48 + level * 22 + (reduce ? 0 : Math.sin(t * 2) * 2);
+    const cg = cx.createRadialGradient(m, m, 0, m, m, cr);
+    cg.addColorStop(0, "#ffffff"); cg.addColorStop(.35, col); cg.addColorStop(1, col + "00");
+    cx.fillStyle = cg; cx.beginPath(); cx.arc(m, m, cr, 0, Math.PI * 2); cx.fill();
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+})();
+</script>
