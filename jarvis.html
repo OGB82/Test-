@@ -55,6 +55,11 @@ main .wrap { display: flex; flex-direction: column; gap: 14px; padding-block: 8p
 .msg.me .who { color: var(--warm); }
 .who { display: block; font: 400 .68rem var(--f-mono); letter-spacing: .14em; text-transform: uppercase; margin-bottom: 2px; }
 .msg.err { color: var(--danger); }
+.tools { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+.panel { display: flex; flex-direction: column; gap: 8px; padding-block: 4px 12px; font-size: .88rem; }
+.panel p { margin: 0; color: var(--muted); max-width: 60ch; }
+.panel .row { display: flex; gap: 8px; }
+select { flex: 1 1 auto; min-width: 0; font: 16px var(--f-body); color: var(--fg); background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; }
 .replay { display: block; margin-top: 6px; font: 400 .72rem var(--f-mono); letter-spacing: .08em; text-transform: uppercase; color: var(--core); background: transparent; border: 1px solid var(--line); border-radius: 999px; padding: 5px 10px; cursor: pointer; }
 .chips { display: flex; flex-wrap: wrap; gap: 8px; }
 .chip { font: 400 .88rem var(--f-body); color: var(--fg); background: var(--panel); border: 1px solid var(--line); border-radius: 999px; padding: 8px 14px; cursor: pointer; text-align: left; }
@@ -81,13 +86,22 @@ textarea::placeholder { color: var(--muted); }
 <header><div class="wrap">
   <span class="brand">Jarvis</span>
   <span class="status" id="status" data-s="bereit"><i></i><span id="statusText">Bereit</span></span>
-  <button class="toggle" id="voice" type="button" aria-pressed="true">Stimme an</button>
+  <span class="tools">
+    <button class="toggle" id="voice" type="button" aria-pressed="true">Stimme an</button>
+    <button class="toggle" id="gear" type="button" aria-expanded="false" aria-controls="panel">Stimme wählen</button>
+  </span>
+</div>
+<div class="wrap panel" id="panel" hidden>
+  <label for="voicePick">Welche Stimme soll Jarvis haben?</label>
+  <div class="row"><select id="voicePick"></select><button class="toggle" id="voiceTest" type="button">▶ Testen</button></div>
+  <p id="voiceEmpty" hidden>Auf diesem Gerät wurde keine deutsche Stimme gefunden.</p>
+  <p>Bessere Stimmen (★) am iPhone: Einstellungen → Bedienungshilfen → Gesprochene Inhalte → Stimmen → Deutsch, dort z. B. „Anna (Premium)“ oder „Markus (Erweitert)“ laden. Danach diese Seite neu öffnen.</p>
 </div></header>
 
 <div class="core"><canvas id="orb" width="400" height="400" aria-hidden="true"></canvas></div>
 
 <main id="log"><div class="wrap" id="list">
-  <div class="msg ai"><span class="who">Jarvis</span>Guten Tag. Ich bin Jarvis, dein persönlicher Assistent. Frag mich, was du willst: Wissen, Ideen, Rechnen, Planen oder einfach ein Gespräch.</div>
+  <div class="msg ai"><span class="who">Jarvis</span>Hallo, ich bin Jarvis. Wie kann ich dir helfen?</div>
   <div class="chips" id="chips">
     <button class="chip" type="button">Erklär mir in 3 Sätzen, wie ein schwarzes Loch entsteht</button>
     <button class="chip" type="button">Gib mir 3 Ideen fürs Abendessen heute</button>
@@ -134,11 +148,32 @@ textarea::placeholder { color: var(--muted); }
 
   // ---- Voice output ----
   let deVoice = null;
+  const NOVELTY = /eddy|flo|grandma|grandpa|oma|opa|reed|rocko|sandy|shelley|bubbles|bahh|bells|boing|cellos|jester|organ|trinoids|whisper|wobble|zarvox|albert|bad news|good news|superstar|junior|fred|ralph|kathy/i;
+  function score(v) {
+    let s = 0;
+    if (/^de/i.test(v.lang)) s += 100; else if (!/^de/i.test(v.lang)) s -= 100;
+    if (NOVELTY.test(v.name)) s -= 80;
+    if (/premium|erweitert|enhanced|neural|natural|online/i.test(v.name)) s += 30;
+    if (/siri/i.test(v.name)) s += 25;
+    if (/google/i.test(v.name)) s += 15;
+    if (/markus|yannick|martin|conrad|stefan|helena|anna|petra|katja|viktor/i.test(v.name)) s += 10;
+    if (v.localService === false) s += 5;
+    return s;
+  }
+  function voices() { try { return speechSynthesis.getVoices(); } catch (e) { return []; } }
   function pickVoice() {
-    try {
-      const vs = speechSynthesis.getVoices();
-      deVoice = vs.find(v => /^de/i.test(v.lang) && /male|mann|markus|yannick|hans|stefan|conrad/i.test(v.name)) || vs.find(v => /^de/i.test(v.lang)) || null;
-    } catch (e) {}
+    const vs = voices();
+    let saved = null; try { saved = localStorage.getItem("jarvis-voice"); } catch (e) {}
+    deVoice = (saved && vs.find(v => v.name === saved)) || vs.filter(v => /^de/i.test(v.lang)).sort((a, b) => score(b) - score(a))[0] || null;
+    fillPicker();
+  }
+  function fillPicker() {
+    const sel = $("voicePick"); if (!sel) return;
+    const vs = voices().filter(v => /^de/i.test(v.lang) && !NOVELTY.test(v.name)).sort((a, b) => score(b) - score(a));
+    const all = vs.length ? vs : voices().filter(v => /^de/i.test(v.lang));
+    sel.innerHTML = "";
+    all.forEach(v => { const o = document.createElement("option"); o.value = v.name; o.textContent = v.name.replace(/\s*\(.*?\)\s*/g, " ").trim() + (/premium|erweitert|enhanced|neural|natural/i.test(v.name) ? "  ★" : ""); if (deVoice && v.name === deVoice.name) o.selected = true; sel.append(o); });
+    $("voiceEmpty").hidden = all.length > 0;
   }
   if ("speechSynthesis" in window) { pickVoice(); speechSynthesis.onvoiceschanged = pickVoice; } else { voiceOn = false; $("voice").hidden = true; }
   function speak(text) {
@@ -146,7 +181,7 @@ textarea::placeholder { color: var(--muted); }
     try {
       speechSynthesis.cancel();
       const u = new SpeechSynthesisUtterance(text);
-      u.lang = "de-DE"; if (deVoice) u.voice = deVoice; u.rate = 1.02; u.pitch = 0.9;
+      u.lang = "de-DE"; if (deVoice) u.voice = deVoice; u.rate = 1; u.pitch = 1;
       u.onstart = () => { state = "speak"; setStatus("bereit", "Spricht"); };
       u.onend = () => { state = "idle"; setStatus("bereit", "Bereit"); };
       u.onerror = ev => { state = "idle"; setStatus("bereit", "Bereit"); if (ev && ev.error !== "interrupted" && ev.error !== "canceled") hint.textContent = "Vorlesen blockiert. Tippe auf „Vorlesen“ unter der Antwort."; };
@@ -167,6 +202,10 @@ textarea::placeholder { color: var(--muted); }
     b.onclick = () => { const was = voiceOn; voiceOn = true; speak(text); voiceOn = was; };
     msgEl.append(b);
   }
+  $("gear").onclick = () => { const p = $("panel"); p.hidden = !p.hidden; $("gear").setAttribute("aria-expanded", !p.hidden); if (!p.hidden) fillPicker(); };
+  $("voicePick").onchange = e => { deVoice = voices().find(v => v.name === e.target.value) || deVoice; try { localStorage.setItem("jarvis-voice", e.target.value); } catch (err) {} speakTest(); };
+  function speakTest() { unlockSpeech(); const was = voiceOn; voiceOn = true; speak("Hallo, ich bin Jarvis. Wie kann ich dir helfen?"); voiceOn = was; }
+  $("voiceTest").onclick = speakTest;
   $("voice").onclick = () => {
     voiceOn = !voiceOn;
     $("voice").setAttribute("aria-pressed", voiceOn);
