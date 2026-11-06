@@ -55,6 +55,7 @@ main .wrap { display: flex; flex-direction: column; gap: 14px; padding-block: 8p
 .msg.me .who { color: var(--warm); }
 .who { display: block; font: 400 .68rem var(--f-mono); letter-spacing: .14em; text-transform: uppercase; margin-bottom: 2px; }
 .msg.err { color: var(--danger); }
+.replay { display: block; margin-top: 6px; font: 400 .72rem var(--f-mono); letter-spacing: .08em; text-transform: uppercase; color: var(--core); background: transparent; border: 1px solid var(--line); border-radius: 999px; padding: 5px 10px; cursor: pointer; }
 .chips { display: flex; flex-wrap: wrap; gap: 8px; }
 .chip { font: 400 .88rem var(--f-body); color: var(--fg); background: var(--panel); border: 1px solid var(--line); border-radius: 999px; padding: 8px 14px; cursor: pointer; text-align: left; }
 .chip:hover { border-color: var(--core); }
@@ -104,7 +105,7 @@ textarea::placeholder { color: var(--muted); }
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
     </button>
   </form>
-  <div class="hint" id="hint">Tipp: Zum Sprechen das Mikrofon auf deiner Handy-Tastatur nutzen.</div>
+  <div class="hint" id="hint">Tipp: Mikrofon der Tastatur zum Sprechen. Kein Ton? Lautlos-Schalter am iPhone aus.</div>
 </div></footer>
 
 <script>
@@ -147,10 +148,24 @@ textarea::placeholder { color: var(--muted); }
       const u = new SpeechSynthesisUtterance(text);
       u.lang = "de-DE"; if (deVoice) u.voice = deVoice; u.rate = 1.02; u.pitch = 0.9;
       u.onstart = () => { state = "speak"; setStatus("bereit", "Spricht"); };
-      u.onend = u.onerror = () => { state = "idle"; setStatus("bereit", "Bereit"); };
+      u.onend = () => { state = "idle"; setStatus("bereit", "Bereit"); };
+      u.onerror = ev => { state = "idle"; setStatus("bereit", "Bereit"); if (ev && ev.error !== "interrupted" && ev.error !== "canceled") hint.textContent = "Vorlesen blockiert. Tippe auf „Vorlesen“ unter der Antwort."; };
       u.onboundary = () => { level = 1; };
       speechSynthesis.speak(u);
     } catch (e) { state = "idle"; }
+  }
+  // iPhone/Safari only allow speech that starts inside a tap. Unlock it on the tap that sends the question.
+  let unlocked = false;
+  function unlockSpeech() {
+    if (unlocked || !("speechSynthesis" in window)) return;
+    try { const u = new SpeechSynthesisUtterance(" "); u.volume = 0; u.lang = "de-DE"; speechSynthesis.speak(u); unlocked = true; } catch (e) {}
+  }
+  function addReplay(msgEl, text) {
+    if (!("speechSynthesis" in window)) return;
+    const b = document.createElement("button");
+    b.type = "button"; b.className = "replay"; b.textContent = "▶ Vorlesen";
+    b.onclick = () => { const was = voiceOn; voiceOn = true; speak(text); voiceOn = was; };
+    msgEl.append(b);
   }
   $("voice").onclick = () => {
     voiceOn = !voiceOn;
@@ -195,6 +210,7 @@ textarea::placeholder { color: var(--muted); }
   async function ask(text) {
     text = text.trim(); if (!text || ctl) return;
     try { speechSynthesis.cancel(); } catch (e) {}
+    unlockSpeech();
     $("chips")?.remove();
     q.value = ""; grow();
     add("me", text);
@@ -214,6 +230,7 @@ textarea::placeholder { color: var(--muted); }
         onText: ({ text }) => { out.textContent = text; level = Math.min(1, level + .3); log.scrollTop = log.scrollHeight; },
       });
       turns.push({ role: "assistant", content: answer });
+      addReplay(out.parentElement, answer);
       finish(); speak(answer);
       return;
     } catch (e) {
