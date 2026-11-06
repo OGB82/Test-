@@ -5,14 +5,14 @@
 <style>
 /* Layout: one-screen voice console. Header strip, reactive core, conversation log, input dock. Deliberately single dark theme. */
 :root {
-  --bg: #070b10;
-  --panel: #0e151d;
-  --line: #1c2a36;
-  --fg: #dce7ee;
-  --muted: #7d909e;
-  --core: #4fd8e8;
-  --warm: #f0b45a;
-  --danger: #ff7a6b;
+  --bg: #0a0607;
+  --panel: #170d0f;
+  --line: #311a1e;
+  --fg: #f3e6e7;
+  --muted: #a08a8d;
+  --core: #ff2e4a;
+  --warm: #ffb36b;
+  --danger: #ffd166;
   --f-display: "Chakra Petch", "Segoe UI", system-ui, sans-serif;
   --f-body: "IBM Plex Sans", system-ui, -apple-system, sans-serif;
   --f-mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
@@ -44,7 +44,8 @@ header .wrap { display: flex; align-items: center; justify-content: space-betwee
 .toggle:focus-visible, button:focus-visible, textarea:focus-visible { outline: 2px solid var(--core); outline-offset: 2px; }
 
 .core { flex: 0 0 auto; display: grid; place-items: center; padding-block: 4px; }
-canvas { width: min(200px, 46vw); aspect-ratio: 1; max-width: 100%; display: block; }
+canvas { width: min(260px, 64vw, 34vh); aspect-ratio: 1; max-width: 100%; display: block; }
+.core .name { font: 600 .8rem var(--f-display); letter-spacing: .6em; color: var(--core); text-shadow: 0 0 12px var(--core); margin-top: -6px; padding-left: .6em; }
 
 main { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
 main .wrap { display: flex; flex-direction: column; gap: 14px; padding-block: 8px 16px; }
@@ -98,7 +99,7 @@ textarea::placeholder { color: var(--muted); }
   <p>Bessere Stimmen (★) am iPhone: Einstellungen → Bedienungshilfen → Gesprochene Inhalte → Stimmen → Deutsch, dort z. B. „Anna (Premium)“ oder „Markus (Erweitert)“ laden. Danach diese Seite neu öffnen.</p>
 </div></header>
 
-<div class="core"><canvas id="orb" width="400" height="400" aria-hidden="true"></canvas></div>
+<div class="core"><canvas id="orb" width="600" height="600" aria-hidden="true"></canvas><span class="name">J A R V I S</span></div>
 
 <main id="log"><div class="wrap" id="list">
   <div class="msg ai"><span class="who">Jarvis</span>Hallo, ich bin Jarvis. Wie kann ich dir helfen?</div>
@@ -185,7 +186,7 @@ textarea::placeholder { color: var(--muted); }
       u.onstart = () => { state = "speak"; setStatus("bereit", "Spricht"); };
       u.onend = () => { state = "idle"; setStatus("bereit", "Bereit"); };
       u.onerror = ev => { state = "idle"; setStatus("bereit", "Bereit"); if (ev && ev.error !== "interrupted" && ev.error !== "canceled") hint.textContent = "Vorlesen blockiert. Tippe auf „Vorlesen“ unter der Antwort."; };
-      u.onboundary = () => { level = 1; };
+      u.onboundary = () => { window.__jarvisKick && window.__jarvisKick(); };
       speechSynthesis.speak(u);
     } catch (e) { state = "idle"; }
   }
@@ -289,42 +290,118 @@ textarea::placeholder { color: var(--muted); }
   // ---- Reactive core ----
   const cv = $("orb"), cx = cv.getContext("2d");
   const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
-  const css = getComputedStyle(document.documentElement);
-  const C = css.getPropertyValue("--core").trim(), W = css.getPropertyValue("--warm").trim();
-  let t0 = performance.now();
+  const S = 600, m = S / 2, TAU = Math.PI * 2;
+  const RED = [255, 46, 74], HOT = [255, 140, 120], WHITE = [255, 236, 236];
+  const rgba = (c, a) => `rgba(${c[0]},${c[1]},${c[2]},${Math.max(0, Math.min(1, a))})`;
+  let kick = 0, spin = 0, last = performance.now();
+  const shocks = [];
+  const parts = Array.from({ length: 70 }, () => ({ r: 95 + Math.random() * 170, a: Math.random() * TAU, s: (.15 + Math.random() * .5) * (Math.random() < .5 ? -1 : 1), z: .5 + Math.random() * 1.5 }));
+  // word boundaries from the voice give the core a beat
+  window.__jarvisKick = () => { kick = 1; if (shocks.length < 6) shocks.push({ r: 70, a: .9 }); };
+  const noise = (x) => Math.sin(x) * .5 + Math.sin(x * 2.17 + 1.3) * .3 + Math.sin(x * 5.03 + .7) * .2;
+
   function frame(now) {
-    const t = (now - t0) / 1000, S = 400, m = S / 2;
+    const dt = Math.min(.05, (now - last) / 1000); last = now;
+    const t = now / 1000;
+    const speaking = state === "speak", thinking = state === "think";
+    // simulated voice envelope: syllable rhythm + word kicks
+    const syll = speaking ? .45 + .35 * Math.abs(noise(t * 11)) + .2 * Math.abs(Math.sin(t * 23)) : 0;
+    const target = speaking ? syll : thinking ? .3 : .06;
+    level += (target - level) * (speaking ? .25 : .06);
+    kick *= .9;
+    const E = Math.min(1.3, level + kick * .5);
+    spin += dt * (reduce ? 0 : (thinking ? 1.8 : .35 + E * 1.2));
+
+    cx.globalCompositeOperation = "source-over";
     cx.clearRect(0, 0, S, S);
-    const target = state === "speak" ? .55 + .45 * Math.abs(Math.sin(t * 9)) : state === "think" ? .35 : .08;
-    level += (target - level) * .08;
-    const col = state === "think" ? W : C;
-    // glow
-    const g = cx.createRadialGradient(m, m, 10, m, m, 170);
-    g.addColorStop(0, col + "55"); g.addColorStop(.5, col + "14"); g.addColorStop(1, col + "00");
-    cx.fillStyle = g; cx.beginPath(); cx.arc(m, m, 190, 0, Math.PI * 2); cx.fill();
-    // rings
-    const rings = [[150, 1.5, .25, 0.5], [128, 3, .55, -0.9], [104, 1.2, .35, 1.6]];
-    rings.forEach(([r, w, a, sp], i) => {
-      cx.strokeStyle = col; cx.globalAlpha = a + level * .3; cx.lineWidth = w;
-      const rot = reduce ? 0 : t * sp * (state === "think" ? 2.2 : 1);
-      const segs = 6 + i * 3;
-      for (let k = 0; k < segs; k++) {
-        const a0 = rot + k * (Math.PI * 2 / segs), len = (Math.PI * 2 / segs) * (.55 + .25 * Math.sin(k + t * .5));
-        cx.beginPath(); cx.arc(m, m, r + level * 6 * (i + 1), a0, a0 + len); cx.stroke();
-      }
-    });
-    // ticks
-    cx.globalAlpha = .5; cx.lineWidth = 1;
-    for (let k = 0; k < 60; k++) {
-      const a = k * Math.PI / 30 + (reduce ? 0 : -t * .15), r1 = 172, r2 = k % 5 ? 178 : 186;
+    cx.globalCompositeOperation = "lighter";
+
+    // haze
+    let g = cx.createRadialGradient(m, m, 20, m, m, 290);
+    g.addColorStop(0, rgba(RED, .28 + E * .25)); g.addColorStop(.45, rgba(RED, .07 + E * .06)); g.addColorStop(1, rgba(RED, 0));
+    cx.fillStyle = g; cx.fillRect(0, 0, S, S);
+
+    // outer tick dial
+    cx.lineWidth = 2;
+    for (let k = 0; k < 120; k++) {
+      const a = k / 120 * TAU - spin * .25, major = k % 10 === 0;
+      const r1 = 268, r2 = major ? 286 : 276;
+      cx.strokeStyle = rgba(RED, major ? .9 : .35);
       cx.beginPath(); cx.moveTo(m + Math.cos(a) * r1, m + Math.sin(a) * r1); cx.lineTo(m + Math.cos(a) * r2, m + Math.sin(a) * r2); cx.stroke();
     }
-    // core
-    cx.globalAlpha = 1;
-    const cr = 48 + level * 22 + (reduce ? 0 : Math.sin(t * 2) * 2);
-    const cg = cx.createRadialGradient(m, m, 0, m, m, cr);
-    cg.addColorStop(0, "#ffffff"); cg.addColorStop(.35, col); cg.addColorStop(1, col + "00");
-    cx.fillStyle = cg; cx.beginPath(); cx.arc(m, m, cr, 0, Math.PI * 2); cx.fill();
+
+    // segmented arcs, counter-rotating
+    const arcs = [[250, 3, 3, .6, .55], [228, 10, 5, -1, .35], [208, 2, 12, 1.6, .6], [190, 5, 3, -2.3, .45]];
+    arcs.forEach(([r, w, n, sp, al]) => {
+      cx.lineWidth = w; cx.strokeStyle = rgba(RED, al + E * .35);
+      const rot = spin * sp;
+      for (let k = 0; k < n; k++) {
+        const a0 = rot + k / n * TAU, len = TAU / n * (.5 + .2 * Math.sin(k * 3 + t * .4));
+        cx.beginPath(); cx.arc(m, m, r + E * 8, a0, a0 + len); cx.stroke();
+      }
+    });
+
+    // thinking sweep
+    if (thinking) {
+      const a = spin * 2.2;
+      const sg = cx.createConicGradient ? cx.createConicGradient(a, m, m) : null;
+      if (sg) { sg.addColorStop(0, rgba(HOT, .45)); sg.addColorStop(.12, rgba(RED, 0)); sg.addColorStop(1, rgba(RED, 0)); cx.fillStyle = sg; cx.beginPath(); cx.arc(m, m, 250, 0, TAU); cx.arc(m, m, 120, 0, TAU, true); cx.fill(); }
+    }
+
+    // radial voice bars
+    const N = 96;
+    cx.lineCap = "round";
+    for (let k = 0; k < N; k++) {
+      const a = k / N * TAU - Math.PI / 2;
+      const wave = Math.abs(noise(k * .55 + t * 7)) * .7 + Math.abs(Math.sin(k * .9 - t * 5)) * .3;
+      const len = 6 + E * 62 * wave + (reduce ? 0 : 3 * Math.sin(t * 1.5 + k));
+      const r1 = 132;
+      cx.lineWidth = 3;
+      cx.strokeStyle = rgba(wave > .6 && E > .4 ? HOT : RED, .35 + E * .55 * wave);
+      cx.beginPath(); cx.moveTo(m + Math.cos(a) * r1, m + Math.sin(a) * r1); cx.lineTo(m + Math.cos(a) * (r1 + len), m + Math.sin(a) * (r1 + len)); cx.stroke();
+    }
+
+    // shockwaves on word beats
+    for (let i = shocks.length - 1; i >= 0; i--) {
+      const s = shocks[i]; s.r += 260 * dt; s.a -= 1.4 * dt;
+      if (s.a <= 0) { shocks.splice(i, 1); continue; }
+      cx.lineWidth = 2; cx.strokeStyle = rgba(HOT, s.a * .7);
+      cx.beginPath(); cx.arc(m, m, s.r, 0, TAU); cx.stroke();
+    }
+
+    // orbiting particles
+    parts.forEach(p => {
+      p.a += p.s * dt * (reduce ? 0 : 1 + E * 3);
+      const r = p.r + E * 14 * Math.sin(p.a * 3 + t);
+      const x = m + Math.cos(p.a) * r, y = m + Math.sin(p.a) * r;
+      cx.fillStyle = rgba(p.z > 1.6 ? WHITE : HOT, .25 + E * .5);
+      cx.beginPath(); cx.arc(x, y, p.z * (1 + E * .6), 0, TAU); cx.fill();
+    });
+
+    // plasma blob outline
+    const base = 82 + E * 26;
+    for (let layer = 0; layer < 3; layer++) {
+      cx.beginPath();
+      for (let k = 0; k <= 72; k++) {
+        const a = k / 72 * TAU;
+        const d = noise(a * 3 + t * (2 + layer) + layer * 2) * (4 + E * 16) + noise(a * 7 - t * 3) * E * 6;
+        const r = base - layer * 9 + d;
+        const x = m + Math.cos(a) * r, y = m + Math.sin(a) * r;
+        k ? cx.lineTo(x, y) : cx.moveTo(x, y);
+      }
+      cx.closePath();
+      cx.lineWidth = 2 - layer * .5; cx.strokeStyle = rgba(layer ? RED : HOT, .7 - layer * .2 + E * .2); cx.stroke();
+    }
+
+    // hot core
+    const cr = 64 + E * 34 + (reduce ? 0 : Math.sin(t * 2.4) * 3);
+    for (let i = 0; i < 3; i++) {
+      const ox = reduce ? 0 : Math.cos(t * (1.3 + i) + i * 2) * E * 8, oy = reduce ? 0 : Math.sin(t * (1.7 + i) + i) * E * 8;
+      g = cx.createRadialGradient(m + ox, m + oy, 0, m + ox, m + oy, cr * (1 - i * .18));
+      g.addColorStop(0, rgba(WHITE, .55 + E * .3)); g.addColorStop(.25, rgba(HOT, .45)); g.addColorStop(.6, rgba(RED, .3)); g.addColorStop(1, rgba(RED, 0));
+      cx.fillStyle = g; cx.beginPath(); cx.arc(m + ox, m + oy, cr, 0, TAU); cx.fill();
+    }
+
     requestAnimationFrame(frame);
   }
   requestAnimationFrame(frame);
